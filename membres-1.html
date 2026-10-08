@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Espace membres · Youth Connect</title>
+<style>
+:root{--bg:#0B1020;--card:#131a31;--field:#0d1328;--gold:#D4AF37;--tx:#fff;--mu:#a9b0c8;--ln:#252d4a}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--tx);line-height:1.55}
+header{padding:16px 20px;border-bottom:1px solid var(--ln);display:flex;justify-content:space-between;align-items:center;gap:12px}
+header a{color:var(--tx);text-decoration:none;font-weight:800;font-size:19px;letter-spacing:.3px}
+header a b{color:var(--gold)}
+main{max-width:640px;margin:0 auto;padding:22px 20px 60px}
+h2{font-size:22px;margin:28px 0 12px}
+.card{background:var(--card);border:1px solid var(--ln);border-radius:14px;padding:16px;margin-bottom:14px}
+.card h3{margin:0 0 4px;font-size:17px}
+.mu{color:var(--mu);font-size:14px}
+input,textarea{width:100%;padding:13px;margin:6px 0;border-radius:10px;border:1px solid var(--ln);background:var(--field);color:var(--tx);font:inherit}
+input:focus,textarea:focus,button:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
+label.chk{display:flex;gap:8px;align-items:center;margin:8px 0;color:var(--mu);font-size:14px}
+label.chk input{width:auto;margin:0}
+button{background:var(--gold);color:#0B1020;border:0;border-radius:10px;padding:13px 18px;font:inherit;font-weight:700;cursor:pointer}
+button.ghost{background:none;color:var(--gold);border:1px solid var(--gold);padding:9px 14px}
+button.link{background:none;color:var(--gold);padding:8px 0;text-decoration:underline;font-weight:500}
+.err{color:#ff9a9a;font-size:14px;min-height:20px}
+.hide{display:none}
+</style>
+</head>
+<body>
+<header>
+  <a href="index.html">YOUTH <b>CONNECT</b></a>
+  <button id="out" class="ghost hide">Se déconnecter</button>
+</header>
+<main>
+
+  <section id="auth" class="card">
+    <h3 id="authTitle">Se connecter</h3>
+    <p class="mu">Rejoins la communauté pour envoyer des sujets de prière.</p>
+    <input id="name" class="hide" placeholder="Ton prénom" autocomplete="given-name">
+    <input id="email" type="email" placeholder="Adresse e-mail" autocomplete="email">
+    <input id="pw" type="password" placeholder="Mot de passe (6 caractères minimum)" autocomplete="current-password">
+    <div id="msg" class="err" role="alert"></div>
+    <button id="go">Se connecter</button>
+    <div><button id="sw" class="link">Pas de compte ? Créer un compte</button></div>
+  </section>
+
+  <section id="app" class="hide">
+    <p id="hello" style="font-size:20px;font-weight:700;margin:0"></p>
+    <h2>Sujets de prière</h2>
+    <div class="card">
+      <textarea id="ptxt" rows="3" placeholder="Écris ton sujet de prière"></textarea>
+      <label class="chk"><input type="checkbox" id="ppub"> Afficher aux autres membres</label>
+      <button id="padd">Envoyer le sujet</button>
+      <div id="pmsg" class="err"></div>
+    </div>
+    <div id="plist"></div>
+  </section>
+
+  <section id="adm" class="hide">
+    <h2>Ajouter un événement</h2>
+    <div class="card">
+      <input id="etitle" placeholder="Titre de l'événement">
+      <input id="edate" type="date">
+      <input id="eplace" placeholder="Lieu">
+      <textarea id="edesc" rows="2" placeholder="Description"></textarea>
+      <button id="eadd">Publier l'événement</button>
+      <div id="emsg" class="err"></div>
+    </div>
+  </section>
+
+  <h2>Événements à venir</h2>
+  <div id="elist"><p class="mu">Aucun événement pour le moment.</p></div>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const sb = supabase.createClient(
+  'https://sbiwwnfsxxwpypcjkwnf.supabase.co',
+  'sb_publishable_XQc69557nkN6HZ-FnuK6vQ_ggJYzrhX'
+);
+const $ = id => document.getElementById(id);
+let mode = 'in', myName = '';
+
+function card(title, meta, body){
+  const d = document.createElement('div'); d.className = 'card';
+  if (title){ const h = document.createElement('h3'); h.textContent = title; d.append(h); }
+  if (meta){ const m = document.createElement('div'); m.className = 'mu'; m.textContent = meta; d.append(m); }
+  if (body){ const p = document.createElement('p'); p.textContent = body; p.style.margin = '8px 0 0'; d.append(p); }
+  return d;
+}
+
+async function refresh(){
+  const { data:{ session } } = await sb.auth.getSession();
+  const me = session ? session.user : null;
+  $('auth').classList.toggle('hide', !!me);
+  $('app').classList.toggle('hide', !me);
+  $('out').classList.toggle('hide', !me);
+  let admin = false;
+  if (me){
+    const { data } = await sb.from('profiles').select('name,is_admin').eq('id', me.id).maybeSingle();
+    myName = (data && data.name) || '';
+    admin = !!(data && data.is_admin);
+    $('hello').textContent = 'Bienvenue' + (myName ? ' ' + myName : '') + ' !';
+    loadPrayers();
+  }
+  $('adm').classList.toggle('hide', !admin);
+  loadEvents();
+}
+
+async function loadEvents(){
+  const { data } = await sb.from('events').select('*').order('event_date', { ascending:true }).limit(30);
+  const box = $('elist');
+  if (!data || !data.length) return;
+  box.textContent = '';
+  data.forEach(e => {
+    const when = e.event_date ? new Date(e.event_date + 'T00:00').toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' }) : '';
+    box.append(card(e.title, [when, e.place].filter(Boolean).join(' – '), e.description));
+  });
+}
+
+async function loadPrayers(){
+  const { data } = await sb.from('prayers').select('*').order('created_at', { ascending:false }).limit(50);
+  const box = $('plist'); box.textContent = '';
+  (data || []).forEach(p => {
+    const meta = (p.author || 'Anonyme') + ' – ' + new Date(p.created_at).toLocaleDateString('fr-FR') + (p.is_public ? '' : ' – privé');
+    box.append(card(null, meta, p.content));
+  });
+}
+
+$('go').onclick = async () => {
+  $('msg').textContent = '';
+  const email = $('email').value.trim(), password = $('pw').value;
+  let r;
+  if (mode === 'up'){
+    r = await sb.auth.signUp({ email, password, options:{ data:{ name: $('name').value.trim() } } });
+  } else {
+    r = await sb.auth.signInWithPassword({ email, password });
+  }
+  if (r.error){ $('msg').textContent = r.error.message; return; }
+  if (mode === 'up' && !r.data.session){
+    $('msg').textContent = 'Compte créé. Ouvre ton e-mail pour confirmer, puis connecte-toi.';
+    return;
+  }
+  refresh();
+};
+
+$('sw').onclick = () => {
+  mode = mode === 'in' ? 'up' : 'in';
+  const up = mode === 'up';
+  $('authTitle').textContent = up ? 'Créer un compte' : 'Se connecter';
+  $('go').textContent = up ? 'Créer mon compte' : 'Se connecter';
+  $('sw').textContent = up ? 'Déjà un compte ? Se connecter' : 'Pas de compte ? Créer un compte';
+  $('name').classList.toggle('hide', !up);
+  $('msg').textContent = '';
+};
+
+$('out').onclick = async () => { await sb.auth.signOut(); refresh(); };
+
+$('padd').onclick = async () => {
+  const content = $('ptxt').value.trim();
+  if (!content){ $('pmsg').textContent = 'Écris ton sujet de prière avant de l\'envoyer.'; return; }
+  const { error } = await sb.from('prayers').insert({ content, is_public: $('ppub').checked, author: myName });
+  $('pmsg').textContent = error ? error.message : '';
+  if (!error){ $('ptxt').value = ''; loadPrayers(); }
+};
+
+$('eadd').onclick = async () => {
+  const title = $('etitle').value.trim();
+  if (!title){ $('emsg').textContent = 'Le titre est obligatoire.'; return; }
+  const { error } = await sb.from('events').insert({
+    title, event_date: $('edate').value || null, place: $('eplace').value.trim(), description: $('edesc').value.trim()
+  });
+  $('emsg').textContent = error ? error.message : '';
+  if (!error){ ['etitle','edate','eplace','edesc'].forEach(i => $(i).value = ''); loadEvents(); }
+};
+
+refresh();
+</script>
+</body>
+</html>
